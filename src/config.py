@@ -82,5 +82,5 @@ SETTINGS = {
     'log_file': 'spamfisher.log'
 }
 
-# Geolocation API (free tier)
-GEOLOCATION_API = 'http://ip-api.com/json/{ip}'
+# Geolocation API (using HTTPS for security)
+GEOLOCATION_API = 'https://ipapi.co/{ip}/json/'  # More reliable HTTPS API

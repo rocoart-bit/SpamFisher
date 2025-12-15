@@ -1,76 +1,79 @@
 """
 SpamFisher - Main Application
 Combines monitoring and UI to protect against remote access scams
+SECURITY ENHANCED VERSION
 """
 
 import time
 import threading
-import json
 import os
+import sys
+import signal
 from monitor import ConnectionMonitor
 from ui import WarningScreen
 from config import SETTINGS
+from security import (
+    request_admin_rights, 
+    verify_integrity, 
+    SecureWhitelist,
+    SecureBlocklist,
+    is_admin
+)
 import pystray
 from PIL import Image, ImageDraw
 
 
 class SpamFisher:
-    """Main application controller"""
+    """Main application controller with security features"""
     
     def __init__(self):
+        # Security check
+        if not verify_integrity():
+            print("[SECURITY] Integrity check failed - some files may be compromised")
+            response = input("Continue anyway? (yes/no): ")
+            if response.lower() != 'yes':
+                sys.exit(1)
+        
         self.monitor = ConnectionMonitor()
         self.running = True
         self.warning_active = False
         self.allowed_pids = set()  # PIDs that user has allowed (temporary, session-only)
         self.alerted_connections = {}  # Track which connections we've already alerted on
-        self.whitelist_file = 'whitelist.json'  # Persistent whitelist storage
-        self.permanent_whitelist = self.load_whitelist()  # Load saved whitelist
-        self.tray_icon = None
-        print(f"[DEBUG] SpamFisher initialized - whitelist empty: {len(self.allowed_pids) == 0}")
-        print(f"[DEBUG] Permanent whitelist loaded: {len(self.permanent_whitelist)} entries")
-    
-    def load_whitelist(self):
-        """Load permanent whitelist from JSON file"""
-        try:
-            if os.path.exists(self.whitelist_file):
-                with open(self.whitelist_file, 'r') as f:
-                    data = json.load(f)
-                    # Clean up entries for PIDs that no longer exist
-                    cleaned_data = self.clean_whitelist(data)
-                    return cleaned_data
-        except Exception as e:
-            print(f"[DEBUG] Error loading whitelist: {e}")
         
-        return {}
+        # Use encrypted whitelist
+        self.secure_whitelist = SecureWhitelist()
+        self.permanent_whitelist = self.secure_whitelist.load()
+        self.clean_whitelist()  # Remove stale entries
+        
+        # Use encrypted blocklist
+        self.secure_blocklist = SecureBlocklist()
+        self.permanent_blocklist = self.secure_blocklist.load()
+        
+        self.tray_icon = None
+        
+        print(f"[DEBUG] SpamFisher initialized")
+        print(f"[DEBUG] Admin rights: {'Yes' if is_admin() else 'No (limited protection)'}")
+        print(f"[DEBUG] Permanent whitelist loaded: {len(self.permanent_whitelist)} entries")
+        print(f"[DEBUG] Permanent blocklist loaded: {len(self.permanent_blocklist)} entries")
     
-    def clean_whitelist(self, whitelist):
+    def clean_whitelist(self):
         """Remove entries for processes that no longer exist"""
         import psutil
         cleaned = {}
         
-        for key, value in whitelist.items():
-            # Check if process still exists
+        for key, value in self.permanent_whitelist.items():
             try:
                 pid = value.get('pid')
                 if pid and psutil.pid_exists(pid):
-                    # Process still exists, keep it
                     cleaned[key] = value
                 else:
-                    print(f"[DEBUG] Removing stale whitelist entry: {key} (PID {pid} no longer exists)")
+                    print(f"[DEBUG] Removing stale whitelist entry: {key}")
             except:
-                # If there's any error checking, skip this entry
                 pass
         
-        return cleaned
-    
-    def save_whitelist(self):
-        """Save permanent whitelist to JSON file"""
-        try:
-            with open(self.whitelist_file, 'w') as f:
-                json.dump(self.permanent_whitelist, f, indent=2)
-            print(f"[DEBUG] Whitelist saved: {len(self.permanent_whitelist)} entries")
-        except Exception as e:
-            print(f"[DEBUG] Error saving whitelist: {e}")
+        if len(cleaned) != len(self.permanent_whitelist):
+            self.permanent_whitelist = cleaned
+            self.secure_whitelist.save(self.permanent_whitelist)
     
     def add_to_permanent_whitelist(self, threat_info):
         """Add connection to permanent whitelist"""
@@ -85,13 +88,33 @@ class SpamFisher:
             'first_allowed': time.strftime('%Y-%m-%d %H:%M:%S')
         }
         
-        self.save_whitelist()
+        self.secure_whitelist.save(self.permanent_whitelist)
         print(f"[DEBUG] Added to permanent whitelist: {key}")
+    
+    def add_to_permanent_blocklist(self, threat_info):
+        """Add connection to permanent blocklist"""
+        key = f"{threat_info['software_name']}_{threat_info['remote_ip']}"
+        
+        self.permanent_blocklist[key] = {
+            'software': threat_info['software_name'],
+            'remote_ip': threat_info['remote_ip'],
+            'country': threat_info['country'],
+            'process_name': threat_info['process_name'],
+            'blocked_at': time.strftime('%Y-%m-%d %H:%M:%S')
+        }
+        
+        self.secure_blocklist.save(self.permanent_blocklist)
+        print(f"[DEBUG] Added to permanent blocklist: {key}")
     
     def is_whitelisted(self, threat_info):
         """Check if connection is in permanent whitelist"""
         key = f"{threat_info['software_name']}_{threat_info['remote_ip']}"
         return key in self.permanent_whitelist
+    
+    def is_blocklisted(self, threat_info):
+        """Check if connection is in permanent blocklist"""
+        key = f"{threat_info['software_name']}_{threat_info['remote_ip']}"
+        return key in self.permanent_blocklist
         
     def create_tray_icon(self):
         """Create a simple system tray icon"""
@@ -135,8 +158,11 @@ class SpamFisher:
             return image
         
         # Create menu
+        admin_status = "Admin rights: Yes ✓" if is_admin() else "Admin rights: No (limited protection)"
+        
         menu = pystray.Menu(
             pystray.MenuItem('SpamFisher - Protecting...', lambda: None, enabled=False),
+            pystray.MenuItem(admin_status, lambda: None, enabled=False),
             pystray.Menu.SEPARATOR,
             pystray.MenuItem('Exit', self.exit_application)
         )
@@ -162,14 +188,17 @@ class SpamFisher:
         """User chose to block the connection"""
         print(f"Blocking connection from {threat_info['country']}...")
         
-        # Kill the process and block it
+        # Kill the process and add firewall rule
         success = self.monitor.block_connection(
             threat_info['pid'],
             threat_info['process_name']
         )
         
         if success:
-            print("✅ Connection blocked successfully!")
+            print("✅ Connection blocked and firewalled successfully!")
+            # Add to permanent blocklist
+            self.add_to_permanent_blocklist(threat_info)
+            print(f"✅ Added {threat_info['software_name']} from {threat_info['country']} to permanent blocklist")
         else:
             print("❌ Failed to block connection (may need admin rights)")
         
@@ -185,7 +214,7 @@ class SpamFisher:
         self.allowed_pids.add(threat_info['pid'])
         print(f"Added PID {threat_info['pid']} to session whitelist")
         
-        # Permanent: saved to file, persists across restarts
+        # Permanent: saved to encrypted file, persists across restarts
         self.add_to_permanent_whitelist(threat_info)
         print(f"Added {threat_info['software_name']} from {threat_info['country']} to permanent whitelist")
         
@@ -206,12 +235,21 @@ class SpamFisher:
             threat = self.monitor.scan_for_threats()
             
             if threat:
-                print(f"[DEBUG] Threat detected - checking whitelists...")
+                print(f"[DEBUG] Threat detected - checking whitelists and blocklists...")
                 print(f"[DEBUG] Current allowed_pids: {self.allowed_pids}")
                 print(f"[DEBUG] Current alerted_connections: {list(self.alerted_connections.keys())}")
                 print(f"[DEBUG] Threat PID: {threat['pid']}")
                 
-                # Check permanent whitelist FIRST
+                # Check blocklist FIRST - auto-block if previously blocked
+                if self.is_blocklisted(threat):
+                    print(f"[DEBUG] Connection is in permanent blocklist - auto-blocking")
+                    print(f"🚨 BLOCKED: Previously blocked connection from {threat['country']} detected!")
+                    # Auto-block without showing warning
+                    self.monitor.block_connection(threat['pid'], threat['process_name'])
+                    time.sleep(SETTINGS['check_interval'])
+                    continue
+                
+                # Check permanent whitelist
                 if self.is_whitelisted(threat):
                     print(f"[DEBUG] Skipping alert - connection is in permanent whitelist")
                     time.sleep(SETTINGS['check_interval'])
@@ -249,12 +287,20 @@ class SpamFisher:
     
     def show_warning(self, threat_info):
         """Display warning in main thread"""
-        warning = WarningScreen(
-            threat_info,
-            self.handle_block,
-            self.handle_allow
-        )
-        warning.show()
+        # Create and show warning in a way that doesn't block monitoring
+        import threading
+        
+        def show_warning_thread():
+            warning = WarningScreen(
+                threat_info,
+                self.handle_block,
+                self.handle_allow
+            )
+            warning.show()
+        
+        # Show warning in separate thread so monitoring can continue
+        warning_thread = threading.Thread(target=show_warning_thread)
+        warning_thread.start()
     
     def run(self):
         """Start the application"""
@@ -262,24 +308,65 @@ class SpamFisher:
         monitor_thread = threading.Thread(target=self.monitoring_loop, daemon=True)
         monitor_thread.start()
         
-        # Create and run system tray icon
+        # Create tray icon
         icon = self.create_tray_icon()
         
         print("=" * 50)
         print("SpamFisher is now running in system tray")
         print("Right-click the tray icon to exit")
+        print("Or press Ctrl+C in this window to stop")
         print("=" * 50)
         
-        # Run the tray icon (this blocks until icon is stopped)
-        icon.run()
+        # Run tray icon in a thread so we can handle Ctrl+C
+        import signal
+        
+        def run_tray():
+            icon.run()
+        
+        tray_thread = threading.Thread(target=run_tray, daemon=True)
+        tray_thread.start()
+        
+        # Handle Ctrl+C gracefully
+        def signal_handler(sig, frame):
+            print("\n[SpamFisher] Ctrl+C detected, shutting down...")
+            self.running = False
+            if self.tray_icon:
+                self.tray_icon.stop()
+            sys.exit(0)
+        
+        signal.signal(signal.SIGINT, signal_handler)
+        
+        # Keep main thread alive and responsive to Ctrl+C
+        try:
+            while self.running:
+                time.sleep(0.5)
+        except KeyboardInterrupt:
+            print("\n[SpamFisher] Keyboard interrupt, shutting down...")
+            self.running = False
+            if self.tray_icon:
+                self.tray_icon.stop()
 
 
 def main():
     """Entry point"""
     print("=" * 50)
     print("SpamFisher - Remote Access Scam Protection")
+    print("SECURITY ENHANCED VERSION")
     print("=" * 50)
     print()
+    
+    # Request admin rights for full protection
+    if not is_admin():
+        print("[SECURITY] Administrator rights required for full protection")
+        print("[SECURITY] - Process termination: Available without admin")
+        print("[SECURITY] - Firewall blocking: Requires admin (prevents restart)")
+        print()
+        response = input("Request admin rights now? (yes/no): ")
+        if response.lower() == 'yes':
+            request_admin_rights()
+        else:
+            print("[SECURITY] Running with limited protection (no firewall blocking)")
+            print()
     
     app = SpamFisher()
     app.run()

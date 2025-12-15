@@ -166,15 +166,48 @@ class ConnectionMonitor:
         return True
     
     def get_ip_geolocation(self, ip: str) -> str:
-        """Get country for IP address"""
-        try:
-            response = requests.get(GEOLOCATION_API.format(ip=ip), timeout=3)
-            if response.status_code == 200:
-                data = response.json()
-                return data.get('country', 'Unknown')
-        except:
-            pass
+        """Get country for IP address using HTTPS with multiple fallbacks"""
         
+        # Try multiple services in order
+        services = [
+            {
+                'url': f'https://ipapi.co/{ip}/json/',
+                'key': 'country_name',
+                'name': 'ipapi.co'
+            },
+            {
+                'url': f'https://ip-api.com/json/{ip}',
+                'key': 'country',
+                'name': 'ip-api.com'
+            },
+            {
+                'url': f'https://ipwho.is/{ip}',
+                'key': 'country',
+                'name': 'ipwho.is'
+            }
+        ]
+        
+        for service in services:
+            try:
+                print(f"[DEBUG] Trying geolocation service: {service['name']}")
+                response = requests.get(service['url'], timeout=5)
+                
+                if response.status_code == 200:
+                    data = response.json()
+                    print(f"[DEBUG] Response from {service['name']}: {data}")
+                    
+                    country = data.get(service['key'], None)
+                    if country:
+                        print(f"[DEBUG] Got country from {service['name']}: {country}")
+                        return country
+                else:
+                    print(f"[DEBUG] {service['name']} returned status {response.status_code}")
+                    
+            except Exception as e:
+                print(f"[DEBUG] {service['name']} error: {e}")
+                continue
+        
+        print(f"[DEBUG] All geolocation services failed, returning Unknown")
         return 'Unknown'
     
     def scan_for_threats(self) -> Optional[Dict]:
@@ -212,20 +245,30 @@ class ConnectionMonitor:
         return None
     
     def block_connection(self, pid: int, process_name: str) -> bool:
-        """Block the connection by killing process and adding firewall rule"""
+        """Block the connection by killing process tree and adding firewall rule"""
         try:
-            # Kill the process
-            process = psutil.Process(pid)
-            process.terminate()
+            from security import kill_process_tree, get_process_executable_path, add_firewall_block
             
-            # Wait for termination
-            process.wait(timeout=3)
+            # Get executable path before killing process
+            executable_path = get_process_executable_path(pid)
             
-            if SETTINGS['log_events']:
-                logging.info(f"Terminated process: {process_name} (PID: {pid})")
+            # Kill the process and all children
+            success = kill_process_tree(pid)
             
-            # TODO: Add Windows Firewall rule to block the executable
-            # This requires admin privileges and will be implemented next
+            if not success:
+                if SETTINGS['log_events']:
+                    logging.error(f"Failed to kill process tree for PID {pid}")
+                return False
+            
+            # Add firewall rule to prevent restart
+            if executable_path:
+                firewall_success = add_firewall_block(executable_path, process_name)
+                if firewall_success:
+                    if SETTINGS['log_events']:
+                        logging.info(f"Blocked and firewalled: {process_name} (PID: {pid})")
+                else:
+                    if SETTINGS['log_events']:
+                        logging.warning(f"Killed process but firewall block failed: {process_name}")
             
             return True
             
