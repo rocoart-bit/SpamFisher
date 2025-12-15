@@ -1,0 +1,15 @@
+# SpamFisher Requirements
+# Python dependencies for the project
+
+# Process and system monitoring
+psutil>=5.9.0
+
+# HTTP requests for geolocation
+requests>=2.31.0
+
+# System tray icon
+pystray>=0.19.0
+Pillow>=10.0.0
+
+# GUI (included in Python standard library, but listed for reference)
+# tkinter - comes with Python on Windows
