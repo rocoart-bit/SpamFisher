@@ -350,27 +350,27 @@ If 3+ external connections AND at least one uses remote desktop port
 
 #### Threats We Protect Against:
 
-✅ **Remote access scammers** (primary threat)
+**Remote access scammers** (primary threat)
 - Detection: Monitors for incoming remote connections
 - Protection: Blocks connection, kills process tree, adds firewall rules
 
-✅ **Process respawning**
+**Process respawning**
 - Detection: Kills entire process tree
 - Protection: Firewall prevents reconnection
 
-✅ **Whitelist tampering**
+**Whitelist tampering**
 - Detection: Encrypted storage with Fernet
 - Protection: Can't modify without encryption key
 
-✅ **Configuration file injection**
+**Configuration file injection**
 - Detection: Input validation on all loads
 - Protection: Rejects malformed data
 
-✅ **Man-in-the-middle attacks**
+**Man-in-the-middle attacks**
 - Detection: Uses HTTPS only
 - Protection: Encrypted geolocation API calls
 
-✅ **Multiple hidden processes**
+**Multiple hidden processes**
 - Detection: Process tree analysis
 - Protection: Recursive termination
 
