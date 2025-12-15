@@ -1,6 +1,6 @@
 # SpamFisher Development Guide
 
-## Project Status: Working Prototype ✅
+## Project Status: Working Prototype
 
 SpamFisher is a **functional prototype** that successfully detects and blocks remote access scams in real-time. It has been tested with AnyDesk and works as designed.
 
@@ -12,13 +12,9 @@ SpamFisher is a **functional prototype** that successfully detects and blocks re
 3. [Project Structure](#project-structure)
 4. [Detection Logic Explained](#detection-logic-explained)
 5. [Current Limitations](#current-limitations)
-6. [Path to Distribution](#path-to-distribution)
-7. [Testing Guide](#testing-guide)
-8. [Troubleshooting](#troubleshooting)
+6. [Troubleshooting](#troubleshooting)
 
 ---
-
-## How SpamFisher Works
 
 ### Core Concept
 
@@ -55,7 +51,6 @@ SpamFisher had to be smart enough to distinguish between these two scenarios.
 ### 1. Install Python Dependencies
 
 ```bash
-cd D:\CLAUDE\SpamFisher
 pip install -r requirements.txt
 ```
 
@@ -67,7 +62,6 @@ pip install -r requirements.txt
 ### 2. Run SpamFisher
 
 ```bash
-cd src
 python main.py
 ```
 
@@ -109,7 +103,7 @@ SpamFisher/
 └── .gitignore        # Git ignore rules
 ```
 
-### Key Files Explained
+### Key Files
 
 **config.py** - Database and Settings
 - List of 7 remote access software to monitor (AnyDesk, TeamViewer, VNC, etc.)
@@ -137,9 +131,9 @@ SpamFisher/
 
 ---
 
-## Detection Logic Explained
+## Detection Logic
 
-### The Smart Detection Algorithm
+### Smart Detection Algorithm
 
 SpamFisher uses a multi-layered approach to detect actual remote sessions while ignoring false positives:
 
@@ -202,37 +196,12 @@ If 3+ external connections AND at least one uses remote desktop port
 
 **Otherwise:** Ignore (just background relay server connections)
 
-### Example: AnyDesk Connection Flow
 
-1. **User starts AnyDesk**
-   - AnyDesk connects to relay server in Germany on port 443
-   - AnyDesk listens on port 52048 (dynamic)
-   - **SpamFisher:** Sees relay connection, ignores it (port 443 = relay)
-   - **No alert shown**
-
-2. **Scammer connects to user**
-   - Scammer establishes connection from Romania
-   - Connection appears: Local port 52048 → Remote IP (Romania) port 47894
-   - **SpamFisher:** Sees incoming connection on listening port 52048, remote port is NOT 443
-   - **Alert triggered!**
-
-3. **User clicks BLOCK**
-   - SpamFisher kills AnyDesk process
-   - Connection terminated
-   - Scammer is disconnected
-
-4. **User clicks ALLOW**
-   - Alert closes
-   - PID added to whitelist
-   - No more alerts for this AnyDesk session
-
-### Why This Detection Method Works
-
-✅ **Works with any port** - Doesn't rely on specific port numbers  
-✅ **Catches portable versions** - Detects by behavior, not installation  
-✅ **Filters relay servers** - Ignores normal background connections  
-✅ **Universal approach** - Works for all remote desktop software  
-✅ **No false positives** - Only alerts on actual incoming remote sessions  
+**Works with any port** - Doesn't rely on specific port numbers  
+**Catches portable versions** - Detects by behavior, not installation  
+**Filters relay servers** - Ignores normal background connections  
+**Universal approach** - Works for all remote desktop software  
+**No false positives** - Only alerts on actual incoming remote sessions  
 
 ---
 
@@ -287,244 +256,6 @@ If 3+ external connections AND at least one uses remote desktop port
    - Only 7 remote access tools monitored
    - Scammers could use obscure software
    - **Impact:** Not comprehensive protection
-
----
-
-## Path to Distribution
-
-To make SpamFisher available for real users who need protection, follow this roadmap:
-
-### Phase 1: Code Cleanup (1-2 weeks)
-
-**Essential tasks:**
-
-1. **Remove debug logging**
-   - Remove all `print("[DEBUG]...")` statements
-   - Keep only user-facing messages
-   - Implement proper logging to file instead
-
-2. **Add Windows Firewall blocking**
-   ```python
-   # Add firewall rule to permanently block the executable
-   subprocess.run([
-       'netsh', 'advfirewall', 'firewall', 'add', 'rule',
-       f'name="SpamFisher Block {process_name}"',
-       'dir=in', 'action=block',
-       f'program="{executable_path}"'
-   ])
-   ```
-
-3. **Implement persistent whitelist**
-   - Store allowed PIDs in a file (JSON)
-   - Load on startup
-   - Clean up old entries (PIDs that no longer exist)
-
-4. **Error handling**
-   - Graceful failure if psutil can't access processes
-   - Handle network errors for geolocation
-   - Recover from UI crashes
-
-5. **Configuration UI**
-   - Simple settings window
-   - Language selection
-   - Enable/disable features
-   - View logs
-
-### Phase 2: User Experience (2-3 weeks)
-
-**Essential tasks:**
-
-1. **Create installer**
-   ```bash
-   # Package with PyInstaller
-   pyinstaller --onefile --windowed --icon=spamfisher.ico main.py
-   
-   # Create Windows installer with Inno Setup
-   # Include all dependencies, config files, documentation
-   ```
-
-2. **System tray integration**
-   - Icon showing SpamFisher is running
-   - Right-click menu: Settings, Pause, Exit
-   - Green = monitoring, Yellow = paused, Red = threat detected
-
-3. **Auto-start with Windows**
-   - Add registry key during installation
-   - Or create scheduled task
-   - User can enable/disable in settings
-
-4. **First-run setup wizard**
-   - Choose language
-   - Explain what SpamFisher does
-   - Option to add "trusted contact" phone number
-   - Test the warning screen
-
-5. **Improve warning screen**
-   - Larger, clearer fonts
-   - More visual indicators (red border, flashing)
-   - Sound alert (optional)
-   - Countdown timer before ALLOW button becomes clickable (prevent rush decisions)
-
-### Phase 3: Code Signing & Distribution (Critical - Budget Required)
-
-**This is the biggest blocker for wide distribution.**
-
-**Essential tasks:**
-
-1. **Purchase EV Code Signing Certificate**
-   - **Cost:** €300-500/year
-   - **Vendors:** DigiCert, Sectigo, GlobalSign
-   - **Why essential:** Without this, Windows SmartScreen blocks the installer
-   - **Process:** Requires identity verification (passport, business documents)
-
-2. **Sign all executables**
-   ```bash
-   signtool sign /f certificate.pfx /p password /t http://timestamp.digicert.com SpamFisher.exe
-   ```
-   - Sign the main executable
-   - Sign the installer
-   - **Result:** Windows shows "Publisher: SpamFisher" instead of "Unknown publisher"
-
-3. **Submit to antivirus vendors**
-   - Manually submit to major AVs as known-good software
-   - **Vendors:** Microsoft Defender, Norton, McAfee, Kaspersky, Avast, AVG, Bitdefender
-   - **Process:** Each vendor has online submission form
-   - **Timeline:** 1-2 weeks for approval
-
-4. **Build reputation with Microsoft SmartScreen**
-   - SmartScreen tracks download frequency
-   - More downloads = better reputation
-   - **Timeline:** Takes 2-3 months of downloads to build trust
-   - **Workaround:** Partner with established organization (see Phase 4)
-
-### Phase 4: Community & Distribution (Ongoing)
-
-**Essential tasks:**
-
-1. **Open source the project**
-   - Publish on GitHub
-   - Write comprehensive documentation
-   - Add contributing guidelines
-   - Choose license (GPL v3 recommended for protection software)
-
-2. **Partner with anti-scam organizations**
-   - AARP (USA) - elderly protection
-   - Age UK (UK) - elderly advocacy
-   - Citizens Advice (UK) - consumer protection
-   - Which? (UK) - consumer rights
-   - Local Romanian consumer protection agencies
-
-   **Benefits of partnership:**
-   - They can help fund code signing certificate
-   - They can host/distribute the installer
-   - Their reputation helps with SmartScreen
-   - They can provide support infrastructure
-   - They reach the target audience
-
-3. **Create distribution website**
-   - Simple landing page explaining what it does
-   - Download link for installer
-   - Video demonstration
-   - FAQ section
-   - Contact information
-
-4. **Build community**
-   - Reddit: r/scams, r/techsupport
-   - Facebook groups for seniors
-   - Local community centers
-   - Police cybercrime units (they often share tools)
-
-5. **Expand software database**
-   - Community contributions for new scam tools
-   - Regular updates with new remote access software
-   - JSON database that auto-updates
-
-### Phase 5: Advanced Features (Future)
-
-**Nice-to-have additions:**
-
-1. **Machine learning threat detection**
-   - Analyze traffic patterns
-   - Detect unusual remote access behavior
-   - Reduce reliance on software database
-
-2. **Cloud threat intelligence**
-   - Share detected scammer IPs between users
-   - Build database of known scam connections
-   - Real-time threat updates
-
-3. **Browser extension**
-   - Detect when user visits fake tech support sites
-   - Warning before downloading remote access software
-   - Block known scam domains
-
-4. **Mobile app companion**
-   - Alert family members when threat detected
-   - Remote monitoring for elderly relatives
-   - Emergency "kill switch" to disconnect remotely
-
-5. **Multi-language expansion**
-   - Spanish, Hindi, German, French, Italian
-   - Target countries with high scam rates
-
----
-
-## Testing Guide
-
-### Safe Testing Methods
-
-**Method 1: Two Computers You Control**
-
-1. Set up AnyDesk on two computers (your PC and a laptop)
-2. Run SpamFisher on one computer
-3. Connect from the other computer
-4. Verify warning appears with correct geolocation
-5. Test both BLOCK and ALLOW buttons
-
-**Method 2: Mobile Phone Connection**
-
-1. Install AnyDesk on your phone (Android/iOS)
-2. Install AnyDesk on your PC
-3. Run SpamFisher on PC
-4. Connect from phone to PC
-5. Verify detection works correctly
-
-**Method 3: Trusted Friend/Family**
-
-1. Have a trusted person install AnyDesk
-2. Give them your AnyDesk ID
-3. Run SpamFisher
-4. Have them connect
-5. Verify warning shows their actual location
-
-### What to Test
-
-✅ **Detection accuracy:**
-- Starts AnyDesk → No alert (relay servers ignored)
-- Actual connection → Alert appears within 2-4 seconds
-- Correct country shown
-- BLOCK button works (kills connection)
-- ALLOW button works (connection continues)
-
-✅ **False positives:**
-- Normal internet usage doesn't trigger alerts
-- Video calls (Zoom, Teams) don't trigger alerts
-- Legitimate remote IT support can be allowed
-
-✅ **Persistence:**
-- Allowed connection doesn't re-alert
-- Restart clears whitelist
-- Multiple connections handled correctly
-
-### Testing with Different Software
-
-Test with other remote access tools if available:
-- TeamViewer
-- Chrome Remote Desktop
-- Windows Remote Desktop (RDP)
-- VNC
-
-Each should be detected using the same smart logic.
 
 ---
 
@@ -592,70 +323,10 @@ To see detailed detection information:
 To disable debug output (for production use):
 - Remove `print("[DEBUG]...")` statements from monitor.py and main.py
 
----
-
-## Timeline Estimate for Full Distribution
-
-### Realistic Timeline (Part-time development)
-
-- **Phase 1 (Code Cleanup):** 2-3 weeks
-- **Phase 2 (User Experience):** 3-4 weeks
-- **Phase 3 (Code Signing):** 2-3 weeks (plus certificate approval time)
-- **Phase 4 (Distribution):** Ongoing
-
-**Total to Beta Release:** 2-3 months  
-**Total to Production Release:** 3-4 months (including testing and partnerships)
-
-### Critical Path Items
-
-The **absolute must-haves** before distributing to vulnerable users:
-
-1. ✅ Detection works reliably (DONE)
-2. ✅ Warning screen is clear and effective (DONE)
-3. ⏳ Code signing certificate (REQUIRED)
-4. ⏳ Installer package (REQUIRED)
-5. ⏳ Auto-start with Windows (REQUIRED)
-6. ⏳ System tray icon (REQUIRED)
-7. ⏳ AV whitelisting (REQUIRED)
-8. ⏳ Remove debug logging (REQUIRED)
-
-Everything else can be added incrementally after initial release.
-
----
-
-## Budget Requirements
-
-### Minimum Budget for Distribution
-
-1. **Code Signing Certificate:** €400/year (EV certificate)
-2. **Domain name:** €15/year (for download website)
-3. **Web hosting:** €5/month = €60/year
-4. **Total Year 1:** ~€475
-5. **Total Year 2+:** ~€475/year (certificate renewal)
-
-### Optional Additional Costs
-
-- **Cloud hosting for threat intelligence:** €10-50/month
-- **SMS notification service (Twilio):** Pay-as-you-go
-- **Professional logo/design:** €100-300 one-time
-- **Video production (tutorial):** €200-500 one-time
-
-### Free Alternative: Partnership Route
-
-If budget is not available:
-1. Partner with existing anti-scam organization
-2. They provide code signing certificate
-3. They host the downloads
-4. They handle support
-5. You maintain the code (open source)
-
-This is the **recommended approach** for a free protection tool.
-
----
 
 ## Contributing
 
-Once open-sourced, contributions welcome for:
+Open-source, contributions welcome for:
 
 - Adding support for new remote access software
 - Improving detection algorithms
@@ -668,32 +339,24 @@ Once open-sourced, contributions welcome for:
 
 ## License
 
-To be decided - GPL v3 recommended for protection software to ensure it remains free and open.
+GPL v3.
 
 ---
 
 ## Contact & Support
 
-**Creator:** Robert (Romania)  
-**Motivation:** Protecting mother and other vulnerable people from remote access scams
-
-For questions, issues, or partnership inquiries:
-- Will be added once GitHub repository is created
-- Email/contact form on distribution website
+**Creator:** Robert Costea 
+**Motivation:** Protecting vulnerable people from remote access scams
 
 ---
 
 ## Final Notes
 
-SpamFisher is a **working prototype that successfully protects against remote access scams.** The core detection logic is solid and tested. The primary barriers to wide distribution are:
+SpamFisher is a **working prototype that successfully protects against remote access scams.** The core detection logic is solid and tested. 
 
-1. **Code signing** (technical + cost)
-2. **User-friendly packaging** (technical work)
-3. **Distribution channels** (partnerships)
+SpamFisher could help thousands of vulnerable people avoid losing money to scammers.
 
-With proper execution of the distribution roadmap, SpamFisher could genuinely help thousands of vulnerable people avoid losing money to scammers.
-
-**The mission is clear: Make scam attempts visible to victims at the critical moment.**
+**The mission is: Make scam attempts visible to victims at the critical moment.**
 
 SpamFisher achieves this mission. Now it needs the polish and distribution infrastructure to reach the people who need it most.
 
@@ -701,4 +364,3 @@ SpamFisher achieves this mission. Now it needs the polish and distribution infra
 
 *Last updated: December 2025*  
 *Status: Working Prototype*  
-*Next milestone: Code cleanup and installer creation*
