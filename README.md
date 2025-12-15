@@ -48,15 +48,15 @@ SpamFisher detects when scammers establish remote connections to your computer a
 
 ## Installation
 
-*Coming soon - prototype testing phase*
+Prototype testing phase*
 
 ## License
 
-Open source - GPL v3 (to be confirmed)
+Open source - GPL v3
 
 ## Contributing
 
-This project aims to help protect vulnerable people from financial fraud. Contributions welcome once prototype is complete.
+This project aims to help protect vulnerable people from financial fraud. Contributions welcome.
 
 ## Contact
 
